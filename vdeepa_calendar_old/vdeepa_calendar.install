@@ -1,0 +1,62 @@
+<?php
+/**
+ * Implementation of hook_schema()
+ */
+function vdeepa_calendar_schema() {
+	$schema['appointment_requests']=array(
+		'description' => '',
+		'fields' => array(
+			'nid' => array(
+			'description' => 'The {node}.nid of the appointment content type',
+			'type' => 'int',
+			'unsigned' => TRUE,
+			'not null' => TRUE,
+			'default' => 0),
+
+		      'request_uid' => array(
+			'description' => 'The uid of the requester',
+			'type' => 'int',
+			'unsigned' => TRUE,
+			'not null' => FALSE,
+			'default' => 0),
+
+		      'message' => array(
+			'description' => 'The message from the requester to the owner',
+			'type' => 'text',
+			'not null' => FALSE,
+			'default' => NULL),
+
+		     'status' => array(
+			'description' => 'The status of the request 1-Requested 2-Approved',
+			'type' => 'int',
+			'unsigned' => TRUE,
+			'not null' => FALSE,
+			'default' => 0),
+
+		     'repeat_offset'=>array(
+			'description' => 'A single appointment node can have several repeat dates',
+			'type' => 'int',
+			'unsigned' => TRUE,
+			'not null' => FALSE,
+			'default' => 0),
+
+		),
+	  'primary key' => array('nid','request_uid'),
+	);
+	return $schema;
+}
+
+/**
+ * Implementation of hook_install()
+ */
+function vdeepa_calendar_install() {
+  drupal_install_schema('vdeepa_calendar');
+}
+
+/**
+ * Implementation of hook_uninstall()
+ */
+function vdeepa_calendar_uninstall() {
+  drupal_uninstall_schema('vdeepa_calendar');
+}
+ 

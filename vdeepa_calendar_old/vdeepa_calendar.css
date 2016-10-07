@@ -1,0 +1,133 @@
+html {
+	overflow-x: hidden;
+}
+
+table {
+	table-layout: fixed;
+	empty-cells: show;
+	overflow: hidden;
+}
+
+#node-form {
+	z-index: 42;
+}
+
+#days,#calendar,#month_year {
+	width: 90%;
+	margin: 0px auto;
+}
+	
+#calendar {
+	background: url('calendar.png') no-repeat;
+	position: absolute;
+	left: -90%;/*On load, the calendar has to come out from the left*/
+}
+
+
+
+#month_year,th {
+	text-align: center;
+}
+
+.dates,.time_slot {
+	height: 50px;
+	border: 1px solid black;
+	font-size: 15;
+	text-align: center;
+	padding: 0 0;
+}
+
+.time_slot {
+	height: 30px;
+}
+
+.marker {
+	position: absolute;
+	color: white;
+	text-align: center;
+	font-size: 8pt;
+	cursor: default;
+	z-index: 1;
+}
+
+
+#left,#right {
+	position: fixed;
+	top: 50%;	
+	width: 60px;
+	height: 90px;
+}
+
+
+
+#left {
+	left: 0;
+}
+
+#right {
+	right: 0;
+}
+
+.hour {
+	border-bottom: 2px black solid;
+}
+#tip {
+	background: url(tooltip.png) no-repeat; 
+	width: 180px;
+	height: 60px;
+	text-align: center;
+	padding-top: 15px;
+	font-size: 10pt;
+	cursor: default;
+	color: #00FF00;
+	display: none;
+	position: absolute;
+	z-index: 2;
+}
+a:link {
+	color: #C0C0C0;
+}
+a:visited {
+	color: #808080;
+}
+a:hover {
+	color: black;
+}
+
+
+/*.course,.assignment {
+	background: url(course.jpg) no-repeat;
+}
+
+.event,.appointment {
+	background: url(event.jpg) no-repeat;
+}*/
+
+.course {
+	background-color: #D9D9D9;
+}
+
+.assignment {
+	background-color: #E9E9E9;
+}
+
+.event {
+	background-color:blue;
+}
+.session {
+	background-color: yellow;
+}
+
+.marked {
+	background-color: green;
+}
+
+.requested {
+	background-color: black;
+}
+
+.accepted {
+	background-color: #00BB00;
+}
+	
+

@@ -1,0 +1,476 @@
+<?php
+// ;$Id;
+
+error_reporting(0);
+/**
+ * Implementation of hook_menu()
+ * TODO:@param,@file,@return
+ */
+function vdeepa_calendar_menu() {
+	
+	$items = array();
+
+	$items['user/%user_uid_optional/calendar']=array(
+		'title' => 'Calendar',
+		'description' => 'A Simple Calendar',
+		'page callback' => 'vdeepa_calendar_load_page',	
+		'page arguments' => array(1),
+		'access callback' => 'user_access',
+		'access arguments' => array('view calendar'),
+		'type' => MENU_NORMAL_ITEM,
+	);
+
+	$items['user/%user_uid_optional/ajaxhandler']=array(
+		'page callback' => 'vdeepa_calendar_get_data',
+		'page arguments'=> array(1),
+		'access callback' => 'user_access',
+		'access arguments' => array('view calendar'),
+		'type' => MENU_CALLBACK,
+	);
+
+	$items['user/%user_uid_optional/updatehandler'] = array(
+		'page callback' => 'vdeepa_calendar_update',
+		'access callback' => 'user_access',
+		'access arguments' => array('view calendar'),
+		'type' => MENU_CALLBACK,
+	);
+
+	$items['user/%user_uid_optional/requesthandler']=array(
+		'page callback' => 'vdeepa_calendar_insert_request',
+		'access callback'=> 'user_access',
+		'access arguments' => array('view calendar'),
+		'type' => MENU_CALLBACK,
+	);
+		
+	$items['user/%user_uid_optional/calendar/requests']=array(
+		'page callback' => 'vdeepa_calendar_request_page',
+		'access callback'=> 'user_access',
+		'access arguments' => array('view calendar'),
+		'type' => MENU_NORMAL_ITEM,
+	);
+		
+	return $items;
+}
+
+/**
+ * Implementation of hook_perm()
+ * TODO:@param,@file,@return
+ */
+function vdeepa_calendar_perm() {	
+	return array('view calendar');
+}
+
+function vdeepa_calendar_update() {
+        $nid = $_GET['nid'];
+	$date = $_GET['date'];
+	$from = $_GET['from'];
+        $to = $_GET['to'];	
+	$repeat =(int)$_GET['repeat'];
+	$node = node_load($nid);
+	if ($node->type == 'appointment') {
+		$node->field_appointmentdate[$repeat]['value'] = $date." ".$from;	
+		$node->field_appointmentdate[$repeat]['value2'] = $date." ".$to;
+	}
+	else {
+		$node->field_eventdate[$repeat]['value'] = $date." ".$from;	
+		$node->field_eventdate[$repeat]['value2'] = $date." ".$to;
+	}
+	node_save($node);
+}
+
+
+function vdeepa_calendar_load_page($owner='') {	
+	
+	global $user;
+	
+	$path = drupal_get_path('module','vdeepa_calendar');
+	
+	drupal_add_js($path.'/static/jquery.min.js');
+	drupal_add_js($path.'/static/jquery-ui.min.js');
+	drupal_add_js($path.'/static/jquery.weekcalendar.js');
+	drupal_add_js($path.'/static/demo.js');
+	drupal_add_js(array('viewer' => $user->uid,'owner' => $owner->uid),'setting');	
+
+	drupal_add_css($path.'/static/reset.css');
+	drupal_add_css($path.'/static/jquery-ui.css');
+	drupal_add_css($path.'/static/jquery.weekcalendar.css');
+	drupal_add_css($path.'/static/demo.css');
+	drupal_add_css($path.'/static/vdeepa_calendar.css');
+
+	if($user->uid == $owner->uid) {
+		//doing this because the preprocess method did not work and pissed me off.
+		$user->notify_unseen = vdeepa_calendar_check_for_unseen_requests();
+		$user->notify_accepted  = vdeepa_calendar_check_for_unnotified_accepted();
+	}	
+	return theme('calendar_theme');	
+}
+
+
+function vdeepa_calendar_check_for_unseen_requests() {
+	global $user;
+	//TODO:improve by storing the acceptor uid in request table and check for expiry date
+	$query = "select status from {appointment_requests} where acceptor_seen=0 and nid in (select nid from {node} where type='appointment' and uid=%d)";
+	$get_requests = db_query($query,$user->uid);
+	return $get_requests->num_rows; 
+}
+
+function vdeepa_calendar_check_for_unnotified_accepted() { 
+	global $user;
+	$returnvalue = array();
+
+	$query = "select nid,repeat_offset from {appointment_requests} where request_uid=%d and status=1 and requestor_notified=0";
+	$get_results = db_query($query,$user->uid);
+	while($row = db_fetch_array($get_results)) {
+		db_query("update {appointment_requests} set requestor_notified=1 where nid=%d and request_uid=%d",$row['nid'],$user->uid);
+		$appointment = node_load($row['nid']);
+		$temp['name'] = user_load($appointment->uid)->name;
+		$temp['time'] = $appointment->field_appointmentdate[$row['repeat_offset']]['value'];
+		$returnvalue[] = $temp;
+	}
+	return $returnvalue;
+}
+
+	
+
+/**
+ * The function which hopefully will do pretty much everything
+ */
+global $courses,$assignments,$events,$appointments,$sessions;
+
+function vdeepa_calendar_get_data($owner='') {	
+	global $user,$courses,$assignments,$events,$appointments,$sessions;
+	$types = null;
+	
+	//differentiate between own calendar and others calendar	
+	$own_calendar = $owner->uid == $user->uid ? true : false;
+
+	if($own_calendar) {
+	        //get courses and assignments for the user
+		module_load_include('inc','classroom','classroom.users');
+		module_load_include('inc','classroom','classroom.courses');
+		$courses = classroom_get_courses_for_user($user);
+		foreach($courses as $course) 
+			$assignments[] = classroom_get_assignments($course);
+	
+		//get paid-sessions the user has subscribed to 		
+		$query = "Select op.nid from {uc_order_products} as op,{uc_orders} as o where o.uid=%d and o.order_id=op.order_id"; 	
+		$result = db_query($query,$user->uid);	
+		while($row = db_fetch_object($result)){
+			$node = node_load($row->nid);
+			$sessions[] = $node;
+		}	
+
+		//get free sessions the user has bookmarked
+		$query = "Select content_id from {flag_content} where uid=%d and fid=10"; 	
+		$result = db_query($query,$user->uid);	
+		while($row = db_fetch_object($result)) {
+			$node = node_load($row->content_id);
+			$sessions[] = $node;
+		}		
+		$types = array('event','appointment','psession');
+		$fetch_uid = $user->uid;
+	}
+	else {
+		//it is someone else's calendar
+		$fetch_uid = $owner->uid;
+		$types = array('appointment');
+	}
+
+	//fetch nid's for the given types.	
+	$join = "'".implode("','",$types)."'";
+	$query = "Select nid from {node} where type in ($join) and uid=%d";
+	$fetch_uid = $own_calendar ? $user->uid : $owner->uid;
+	$result = db_query($query,$fetch_uid);
+	while($row = db_fetch_object($result)) {
+		$node = node_load($row->nid);
+		$node->type == 'event'? $events[] = $node : $node->type == 'appointment' ? $appointments[] = $node : $sessions[] = $node;
+	}	
+
+	//timestamp for the starting day of the week at 00:00	
+	$timestamp = strtotime($_GET["date"]);
+		
+	for($i = 0; $i < 7; $i++) {
+		/*TODO: refactor*/	
+		$day = date("j",strtotime($i."day",$timestamp));		
+		$month = date("n",strtotime($i."day",$timestamp));
+		$year = date("Y",strtotime($i."day",$timestamp));
+		
+		if($user->uid != $owner->uid) 
+			$temp = vdeepa_calendar_get_appointments_for_this_day($day,$month,$year,$own_calendar);
+		else 
+			$temp = vdeepa_calendar_get_stuff_for_this_day($day,$month,$year);
+		if($temp)
+			$events_week[] = array('date' => array('year' => $year, 'month' => $month,'day' => $day), 'events_day' => $temp);
+	}	
+	print_r(json_encode($events_week));
+}
+
+
+function vdeepa_calendar_get_stuff_for_this_day($day,$month,$year) {
+	$courses_day = vdeepa_calendar_get_courses_for_this_day($day,$month,$year);
+	$assignments_day = vdeepa_calendar_get_assignments_for_this_day($day,$month,$year);	
+	$events_day = vdeepa_calendar_get_events_for_this_day($day,$month,$year);
+	$appointments_day = vdeepa_calendar_get_appointments_for_this_day($day,$month,$year,$own_calendar);
+	$sessions_day = vdeepa_calendar_get_sessions_for_this_day($day,$month,$year);
+	return $courses_day+$assignments_day+$events_day+$appointments_day+$sessions_day;
+}
+
+
+function vdeepa_calendar_get_courses_for_this_day($day,$month,$year) {
+	global $courses;
+	
+	$returnvalue = array();
+	$temp['type'] = "course";
+
+	foreach($courses as $course) {
+		$classroom = $course->classroom_course;
+		$startdate = $classroom['start_date'];
+		$enddate = $classroom['end_date'];
+	
+		if($startdate['day'] == $day && $startdate['month'] == $month && $startdate['year'] == $year) {
+			$temp['nid'] = $course->nid;
+			$temp['title'] = $course->title." Starts";
+			$temp['time'] = date("H:i",$classroom['start_t']);
+			$returnvalue[] = $temp;
+		}	
+
+		if($enddate['day'] == $day && $enddate['month'] == $month && $enddate['year'] == $year) {
+			$temp['nid'] = $course->nid;
+			$temp['title'] = $course->title." Ends";
+			$temp['time'] = date("H:i",$classroom['end_t']);
+			$returnvalue[] = $temp;
+		}
+	}	
+	return $returnvalue;
+}
+
+
+function vdeepa_calendar_get_assignments_for_this_day($day,$month,$year) {
+	global $assignments;
+	
+	$returnvalue = array();
+	$temp['type'] = 'assignment';
+	
+	foreach($assignments as $course_assignments) {
+		foreach($course_assignments as $assignment) {
+			$deadline = $assignment->classroom_assignment['end_date']['date'];
+			if($deadline['day'] == $day && $deadline['month'] == $month && $deadline['year'] == $year) {
+				$temp['nid'] = $assignment->nid;
+				$temp['title'] = $assignment->title." Submission";
+				$temp['time'] = date("H:i",$assignment->classroom_assignment['end_date']['end_t']);
+				$returnvalue[] = $temp;
+			}
+		}
+	}	
+	return $returnvalue;
+}
+
+function vdeepa_calendar_get_sessions_for_this_day($day,$month,$year) {
+	global $sessions;
+	
+	$returnvalue = array();
+	$temp['type'] = 'session';
+
+	foreach($sessions as $session) {
+		$session_dates = $session->field_date;/*field name can be changed*/
+		foreach($session_dates as $repeat_offset => $session_date) {
+			list($fromdate,$fromtime) = preg_split('/ /',$session_date['value']);
+			list($todate,$totime) = preg_split('/ /',$session_date['value2']);
+			list($session_year,$session_month,$session_day) = preg_split('/-/',$fromdate);
+			if($session_day == $day && $session_month == $month && $session_year == $year) {
+				$temp['nid'] = $session->nid;
+				$temp['title'] = $session->title;
+				$temp['time'] = $fromtime;
+				$temp['todate'] = $todate;
+				$temp['totime'] = $totime;
+				$temp['repeat_offset'] = $repeat_offset;
+				$returnvalue[] = $temp;	
+			}	
+		}		
+	}	
+	return $returnvalue;
+}
+
+
+function vdeepa_calendar_get_events_for_this_day($day,$month,$year) {
+	global $events;
+	
+	$returnvalue = array();
+	$temp['type']='event';
+
+	foreach($events as $event) {
+		$event_dates = $event->field_eventdate;
+		foreach($event_dates as $repeat_offset => $event_date) {
+			list($fromdate,$fromtime) = preg_split('/ /',$event_date['value']);
+			list($todate,$totime) = preg_split('/ /',$event_date['value2']);
+			list($event_year,$event_month,$event_day) = preg_split('/-/',$fromdate);
+			if($event_day == $day && $event_month == $month && $event_year == $year) {
+				$temp['nid'] = $event->nid;
+				$temp['title'] = $event->title;
+				$temp['time'] = $fromtime;
+				$temp['todate'] = $todate;
+				$temp['totime'] = $totime;
+				$temp['repeat_offset'] = $repeat_offset;
+				$returnvalue[] = $temp;
+			}	
+		}		
+	}	
+	return $returnvalue;
+}
+
+
+function vdeepa_calendar_get_appointments_for_this_day($day,$month,$year,$own_calendar) {
+	global $appointments;
+	
+	$returnvalue = array();
+	$temp['type'] = 'appointment';
+
+	foreach($appointments as $appointment) {
+		$appointment_dates = $appointment->field_appointmentdate;
+		foreach($appointment_dates as $repeat_offset => $appointment_date) {
+			list($fromdate,$fromtime) = preg_split('/ /',$appointment_date['value']);
+			list($todate,$totime) = preg_split('/ /',$appointment_date['value2']);
+			list($appointment_year,$appointment_month,$appointment_day) = preg_split('/-/',$fromdate);
+			if($appointment_day == $day && $appointment_month == $month && $appointment_year == $year) {
+				$temp['nid'] = $appointment->nid;
+
+				//get appointments where owner is the acceptor.
+				$query = "Select status,acceptor_seen from {appointment_requests} where nid=%d";
+				$result = db_query($query,$appointment->nid);
+				if($result->num_rows) {
+					$flag = true;
+					while($row = db_fetch_array($result)) {				
+						if($row['status']) {
+							$temp['status'] = 'approved';
+							$flag = false;
+						}
+						if($flag)
+							$temp['status'] = 'requested';
+					}
+				}
+				else $temp['status'] = 'marked';	
+				$temp['title'] = $appointment->title;
+				$temp['time'] = $fromtime;
+				$temp['todate'] = $todate;
+				$temp['totime'] = $totime;
+				$temp['repeat_offset'] = $repeat_offset;
+				$returnvalue[] = $temp;
+			}	
+		}		
+	}	
+	return $returnvalue;
+}
+
+
+function vdeepa_calendar_insert_request() {
+	global $user;
+	$result = db_query("insert into {appointment_requests} (nid,request_uid,message,status,repeat_offset) values ( %d, %d, '%s',0, %d)",$_GET['nid'],$user->uid,$_GET['message'],$_GET['repeat']);
+	echo $result;
+}
+
+
+function vdeepa_calendar_request_page() {
+	global $user;
+	$query = "select nid from {node} where type='%s' and uid=%d";
+	$result = db_query($query,'appointment',$user->uid);
+	if($result->num_rows == 0) 
+		return "You have not marked any slots as free.";
+	while($row = db_fetch_array($result)) { 
+		$query = "select * from {appointment_requests} where nid=%d";
+		$get_requests = db_query($query,$row['nid']);
+		if($get_requests->num_rows == 0)
+			return "You have no requests yet.";
+		$query = "update {appointment_requests} set acceptor_seen = 1 where nid = %d";
+		$update_seen = db_query($query, $row['nid']);
+			while($request = db_fetch_array($get_requests)) {
+				$name = user_load($request['request_uid'])->name;
+				$uid = $request['request_uid'];
+				$message = $request['message'];
+				$status = $request['status'];
+				$repeat_offset = $request['repeat_offset'];				
+				$request_list[$row['nid']][$repeat_offset][] = array('uid'=>$uid,'name'=>$name,'message'=>$message,'status'=>$status);
+			}
+	}
+	return drupal_get_form('vdeepa_calendar_appointment_requests_form',$request_list);
+}
+
+function vdeepa_calendar_appointment_requests_form($context,$requests) {
+	foreach($requests as $nid=>$appointment_node) {
+		$date_array=node_load($nid)->field_appointmentdate;
+		foreach($appointment_node as $repeat_offset=>$request_array) {
+			$fromdate=preg_split('/ /',$date_array[$repeat_offset]['value']);
+			$todate=preg_split('/ /',$date_array[$repeat_offset]['value2']);
+			$form[$nid.'-'.$repeat_offset.'-title'] = array (
+				   '#type' => 'markup',
+				   '#value' => '&nbsp;&nbsp;&nbsp;<b>--->'.$fromdate[0].'</b> / <b>'.$fromdate[1].'</b> - <b>'.$todate[1].'</b>',
+			);
+			$form['request-'.$nid.'-'.$repeat_offset]= array (
+				   '#type' => 'fieldset',
+				   '#title' => 'Requests',
+				   '#collapsible' => TRUE,
+				   '#collapsed' => FALSE,
+				   '#tree' => TRUE,
+			);
+
+			foreach($request_array as $request) {
+				$form['request-'.$nid.'-'.$repeat_offset][$request['uid']]= array (
+					'#type' => 'checkbox',
+					'#title' => $request['name'].'<br/> <b>Message</b> :<br/>'.$request['message'],
+					'#default_value' => $request['status'],
+				);
+			}
+     	        }
+	}
+	$form['submit']=array (
+		'#type' => 'submit',
+		'#value' => 'Confirm',
+	);
+	return $form;
+}
+
+function vdeepa_calendar_appointment_requests_form_submit($form,&$form_state) {
+	global $user;
+	foreach($form_state['values'] as $name=>$node_status) {
+		$id=preg_split('/-/',$name);
+		if($id[0]=='request') {
+			foreach($node_status as $uid=>$status )  
+				db_query("update {appointment_requests} set status=%d where nid=%d and request_uid=%d and repeat_offset=%d",$status,$id[1],$uid,$id[2]);
+		}
+
+	}
+		$form_state['redirect']=sprintf('user/%d/calendar',$user->uid);
+}
+
+/*
+function vdeepa_calendar_form_alter(&$form,&$form_state,$form_id) {		
+	if($form_id=='event_node_form' || $form_id=='appointment_node_form') {
+		//$form_id=='event_node_form' ? $field='field_eventdate' : $field='field_appointmentdate';
+		//$form[$field]['#default_value']['value']=$_GET['date'];
+		$form['#action'] = url('node/add/event');		 
+	}
+}*/
+	
+
+/**
+* Implementation of hook_help()
+*
+*/
+function vdeepa_calendar_help($path,$arg) {
+	if($path=='admin/help#vdeepa_calendar') {	
+		return "Help me!";
+	}
+}
+
+
+/**
+ * Implementation of hook_theme()
+ */
+function vdeepa_calendar_theme() {
+	return array (
+		'calendar_theme' => array (
+			'template' => 'vdeepa_calendar',
+			),
+							
+       	);
+}
+

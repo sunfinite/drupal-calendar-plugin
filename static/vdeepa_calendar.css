@@ -1,0 +1,36 @@
+#node-form {
+	z-index: 42;
+}
+
+
+#tip {
+	width: 420px;
+	height: 140px;
+	cursor: default;
+	overflow: scroll;
+	background-color: #D9D9D9;
+	display: none;
+	position: absolute;
+	z-index: 9999;
+}
+
+#tip-appointment {
+	display: none;
+}
+
+#appointment-link,#close-tip {
+	color: red;
+}
+
+form {
+	width: 420px;
+	height: 140px;
+}
+
+#tip select {
+	width: 70px;
+}
+
+#placerequest {
+	display: none;
+}

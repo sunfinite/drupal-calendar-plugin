@@ -1,0 +1,7 @@
+; $Id$
+
+name = "VDeepa Calendar"
+description = "A simple calendar"
+project = "vdeepa_calendar"
+core = 6.x
+php = 5.1
